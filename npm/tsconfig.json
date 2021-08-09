@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "es5",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2015"
+    ],
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "https://cdn.skypack.dev/earthstar?dts": ["node_modules/earthstar"],
+      "https://cdn.skypack.dev/earthstar-graph-db?dts": [
+        "node_modules/earthstar-graph-db"
+      ]
+    }
+  }
+}

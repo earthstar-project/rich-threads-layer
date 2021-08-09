@@ -1,0 +1,7 @@
+.DS_Store
+.nova
+npm/node_modules/
+npm/index.d.ts
+npm/index.cjs
+npm/index.js
+npm/index.mjs

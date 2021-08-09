@@ -1,0 +1,30 @@
+{
+  "name": "@earthstar-project/rich-threads-layer",
+  "version": "0.1.0",
+  "description": "",
+  "main": "./index.cjs",
+  "scripts": {
+    "prepublish": "npm run build-types",
+    "build-types": "./node_modules/.bin/dts-bundle-generator --config dts-bundle.config.json"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "node": {
+        "require": "./index.cjs",
+        "import": "./index.mjs"
+      },
+      "default": "./index.js"
+    }
+  },
+  "author": "Sam Gwilym",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "earthstar": "^6.8.5",
+    "earthstar-graph-db": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^16.4.13",
+    "dts-bundle-generator": "^5.9.0"
+  }
+}
