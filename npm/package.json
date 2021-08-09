@@ -2,11 +2,13 @@
   "name": "@earthstar-project/rich-threads-layer",
   "version": "0.1.0",
   "description": "",
-  "main": "./index.cjs",
+  "main": "index.cjs",
+  "module": "index.js",
   "scripts": {
     "prepublish": "npm run build-types",
     "build-types": "./node_modules/.bin/dts-bundle-generator --config dts-bundle.config.json"
   },
+  "types": "index.d.ts",
   "exports": {
     ".": {
       "types": "./index.d.ts",
