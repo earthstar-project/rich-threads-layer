@@ -1,6 +1,6 @@
 {
   "name": "@earthstar-project/rich-threads-layer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "",
   "main": "index.cjs",
   "module": "index.js",

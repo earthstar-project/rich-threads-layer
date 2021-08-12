@@ -488,7 +488,7 @@ export default class LetterboxLayer {
   setThreadRootDraft(
     content: string,
     id?: string,
-  ): ValidationError | WriteResult {
+  ): ValidationError | string {
     if (!this._user) {
       return new ValidationError(
         "Couldn't clear draft reply without a known user.",
@@ -506,11 +506,17 @@ export default class LetterboxLayer {
       return this.setThreadRootDraft(content, `${parseInt(timestamp) + 1}`);
     }
 
-    return this._storage.set(this._user, {
+    const res = this._storage.set(this._user, {
       content,
       format: "es.4",
       path: draftPath,
     });
+    
+    if (isErr(res)) {
+      return res
+    }
+    
+    return timestamp;
   }
 
   clearThreadRootDraft(id: string) {
