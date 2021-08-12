@@ -1,8 +1,7 @@
 import * as esbuild from "https://deno.land/x/esbuild@v0.12.13/mod.js";
 
 const reverseImportMap: Record<string, string> = {
-  "https://cdn.skypack.dev/earthstar?dts": "earthstar",
-  "https://cdn.skypack.dev/earthstar-graph-db?dts": "earthstar-graph-db",
+  "https://esm.sh/earthstar": "earthstar",
 };
 
 const reverseImportMapPlugin: esbuild.Plugin = {
