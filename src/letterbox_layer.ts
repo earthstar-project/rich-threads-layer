@@ -84,13 +84,21 @@ export default class LetterboxLayer {
     return parseInt(rootTimestamp);
   }
 
-  getPostTimestamp(postDoc: Document): number {
+  getReplyTimestamp(postDoc: Document): number {
     const { replyTimestamp } = extractTemplateVariablesFromPath(
       threadReplyTemplate,
       postDoc.path,
     ) as ReplyPathExtractedVars;
 
     return parseInt(replyTimestamp);
+  }
+
+  getPostTimestamp(postDoc: Document): number {
+    if (isRootPost(postDoc)) {
+      return this.getThreadRootTimestamp(postDoc);
+    }
+
+    return this.getReplyTimestamp(postDoc);
   }
 
   _docToThreadRoot(rootDoc: Document): Post {
