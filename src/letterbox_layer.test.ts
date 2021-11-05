@@ -4,11 +4,12 @@ import {
   isErr,
   StorageMemory,
   ValidatorEs4,
+  IStorage
 } from "https://esm.sh/earthstar";
 import {
   assertEquals,
   assertNotEquals,
-} from "https://deno.land/std@0.104.0/testing/asserts.ts";
+  } from "https://deno.land/std@0.104.0/testing/asserts.ts";
 import LetterboxLayer from "./letterbox_layer.ts";
 
 function newStorage() {
@@ -19,26 +20,32 @@ function newIdentity() {
   return generateAuthorKeypair("test") as AuthorKeypair;
 }
 
-function newLayer() {
-  return new LetterboxLayer(newStorage(), newIdentity());
+function newLayer(storage: IStorage, keypair: AuthorKeypair) {
+  return new LetterboxLayer(storage, keypair);
 }
 
 Deno.test({
   name: "Can write and read threads",
   fn: () => {
-    const layer = newLayer();
+    const storage = newStorage();
+    const userA = newIdentity();
+    const userB = newIdentity();
+    const userC = newIdentity();
+    const layerA = newLayer(storage, userA);
+    const layerB = newLayer(storage, userB);
+    const layerC = newLayer(storage, userC);
 
-    layer.createThread("Hello! First thread");
-    layer.createThread("Yo. Second thread");
-    layer.createThread("Greetz. Third thread");
+    layerA.createThread("Hello! First thread");
+    layerB.createThread("Yo. Second thread");
+    layerC.createThread("Greetz. Third thread");
 
-    const threads = layer.getThreads();
+    const threads = layerA.getThreads();
 
     assertEquals(threads.length, 3);
     assertEquals(threads[0].root.doc.content, "Greetz. Third thread");
     assertEquals(threads[2].root.doc.content, "Hello! First thread");
 
-    layer._storage.close();
+    storage.close();
   },
   sanitizeOps: false,
 });
@@ -46,22 +53,30 @@ Deno.test({
 Deno.test({
   name: "Can write and read replies",
   fn: () => {
-    const layer = newLayer();
+    const storage = newStorage()
+    const userA = newIdentity()
+    const userB = newIdentity()
+    const userC = newIdentity()
+    const userD = newIdentity()
+    const layerA = newLayer(storage, userA);
+    const layerB = newLayer(storage, userB);
+    const layerC = newLayer(storage, userC);
+    const layerD = newLayer(storage, userD);
 
-    const thread = layer.createThread("Hello! This is my thread.");
+    const thread = layerA.createThread("Hello! This is my thread.");
 
     if (isErr(thread)) {
       assertEquals(isErr(thread), false);
       return;
     }
 
-    const timestamp = layer.getThreadRootTimestamp(thread.root.doc);
+    const timestamp = layerA.getThreadRootTimestamp(thread.root.doc);
 
-    layer.createReply(timestamp, thread.root.doc.author, "Great thread.");
-    layer.createReply(timestamp, thread.root.doc.author, "I agree!");
-    layer.createReply(timestamp, thread.root.doc.author, "Totally.");
+    layerB.createReply(timestamp, thread.root.doc.author, "Great thread.");
+    layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
+    layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
 
-    const threadWithReplies = layer.getThread(
+    const threadWithReplies = layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -75,7 +90,10 @@ Deno.test({
     assertEquals(threadWithReplies.replies[0].doc.content, "Great thread.");
     assertEquals(threadWithReplies.replies[2].doc.content, "Totally.");
 
-    layer._storage.close();
+    layerA._storage.close();
+    layerB._storage.close();
+    layerC._storage.close();
+    layerD._storage.close();
   },
   sanitizeOps: false,
 });
@@ -83,22 +101,30 @@ Deno.test({
 Deno.test({
   name: "Can mark thread as read",
   fn: () => {
-    const layer = newLayer();
+    const storage = newStorage();
+    const userA = newIdentity()
+    const userB = newIdentity()
+    const userC = newIdentity()
+    const userD = newIdentity()
+    const layerA = newLayer(storage, userA);
+    const layerB = newLayer(storage, userB);
+    const layerC = newLayer(storage, userC);
+    const layerD = newLayer(storage, userD);
 
-    const thread = layer.createThread("Hello! This is my thread.");
+    const thread = layerA.createThread("Hello! This is my thread.");
 
     if (isErr(thread)) {
       assertEquals(isErr(thread), false);
       return;
     }
 
-    const timestamp = layer.getThreadRootTimestamp(thread.root.doc);
+    const timestamp = layerA.getThreadRootTimestamp(thread.root.doc);
 
-    layer.createReply(timestamp, thread.root.doc.author, "Great thread.");
-    layer.createReply(timestamp, thread.root.doc.author, "I agree!");
-    layer.createReply(timestamp, thread.root.doc.author, "Totally.");
+    layerB.createReply(timestamp, thread.root.doc.author, "Great thread.");
+    layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
+    layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
 
-    const threadWithReplies = layer.getThread(
+    const threadWithReplies = layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -113,18 +139,18 @@ Deno.test({
     }
 
     assertEquals(
-      layer.threadHasUnreadPosts(threadWithReplies),
-      false,
-      "Read thread has no unread posts",
+      layerA.threadHasUnreadPosts(threadWithReplies),
+      true,
+      "Thread with replies has unread posts",
     );
 
-    const secondReplyTimestamp = layer.getPostTimestamp(
+    const secondReplyTimestamp = layerA.getPostTimestamp(
       threadWithReplies.replies[1].doc,
     );
 
-    layer.markReadUpTo(timestamp, thread.root.doc.author, secondReplyTimestamp);
+    layerA.markReadUpTo(timestamp, thread.root.doc.author, secondReplyTimestamp);
 
-    const threadWithUnreadReplies = layer.getThread(
+    const threadWithUnreadReplies = layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -139,18 +165,44 @@ Deno.test({
     }
 
     assertEquals(
-      layer.threadHasUnreadPosts(threadWithUnreadReplies),
+      layerA.threadHasUnreadPosts(threadWithUnreadReplies),
       true,
-      "Thread with unread replies has unread posts",
+      "Thread with some unread replies has unread posts",
     );
 
-    const shouldBeRead = layer.isUnread(threadWithUnreadReplies.replies[1]);
-    const shouldBeUnread = layer.isUnread(threadWithUnreadReplies.replies[2]);
+    const shouldBeRead = layerA.isUnread(threadWithUnreadReplies.replies[1]);
+    const shouldBeUnread = layerA.isUnread(threadWithUnreadReplies.replies[2]);
 
     assertEquals(shouldBeRead, false, "Second reply should be read");
     assertEquals(shouldBeUnread, true, "Third reply should be unread");
+    
+    const lastReplyTimestamp = layerA.getPostTimestamp(
+      threadWithReplies.replies[2].doc,
+    );
+    
+    layerA.markReadUpTo(timestamp, thread.root.doc.author, lastReplyTimestamp);
+    
+    const threadWithReadReplies = layerA.getThread(
+      timestamp,
+      thread.root.doc.author,
+    );
 
-    layer._storage.close();
+    if (!threadWithReadReplies) {
+      assertNotEquals(
+        threadWithReadReplies,
+        undefined,
+        "Thread with unread replies is defined",
+      );
+      return;
+    }
+
+    assertEquals(
+      layerA.threadHasUnreadPosts(threadWithUnreadReplies),
+      false,
+      "Thread with all replies marked as read has no unread posts",
+    );
+
+    storage.close();
   },
   sanitizeOps: false,
 });
@@ -158,7 +210,9 @@ Deno.test({
 Deno.test({
   name: "Can create, retrieve, and clear reply drafts",
   fn: () => {
-    const layer = newLayer();
+    const storage = newStorage();
+    const user = newIdentity();
+    const layer = newLayer(storage, user);
 
     const thread = layer.createThread("My very long thread.");
 
@@ -214,7 +268,9 @@ Deno.test({
 Deno.test({
   name: "Can create, retrieve, and clear thread drafts",
   fn: () => {
-    const layer = newLayer();
+    const storage = newStorage();
+    const user = newIdentity();
+    const layer = newLayer(storage, user);
 
     layer.setThreadRootDraft("Unorganised thoughts");
     setTimeout(() => {}, 10);
