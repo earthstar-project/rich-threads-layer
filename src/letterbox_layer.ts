@@ -1,15 +1,8 @@
-import {
-  AuthorKeypair,
-  Document,
-  extractTemplateVariablesFromPath,
-  isErr,
-  IStorage,
-  ValidationError,
-  WriteResult,
-} from "https://esm.sh/earthstar";
+import * as Earthstar from "https://deno.land/x/earthstar@v7.0.0/mod.ts";
+import { extractTemplateVariablesFromPath } from "https://deno.land/x/earthstar@v7.0.0/src/query/query-helpers.ts";
 
 export type Post = {
-  doc: Document;
+  doc: Earthstar.Doc;
   firstPosted: Date;
 };
 
@@ -18,7 +11,7 @@ export type Thread = {
   replies: Post[];
 };
 
-function isRootPost(doc: Document) {
+function isRootPost(doc: Earthstar.Doc) {
   return doc.path.startsWith(`/${APP_NAME}/rootthread`);
 }
 
@@ -67,15 +60,18 @@ function onlyDefined<T>(val: T | undefined): val is T {
 }
 
 export default class LetterboxLayer {
-  _storage: IStorage;
-  _user: AuthorKeypair | null;
+  _replica: Earthstar.Replica;
+  _identity: Earthstar.AuthorKeypair | null;
 
-  constructor(storage: IStorage, user: AuthorKeypair | null) {
-    this._user = user;
-    this._storage = storage;
+  constructor(
+    replica: Earthstar.Replica,
+    user: Earthstar.AuthorKeypair | null,
+  ) {
+    this._identity = user;
+    this._replica = replica;
   }
 
-  getThreadRootTimestamp(rootDoc: Document): number {
+  getThreadRootTimestamp(rootDoc: Earthstar.Doc): number {
     const { rootTimestamp } = extractTemplateVariablesFromPath(
       threadRootTemplate,
       rootDoc.path,
@@ -84,7 +80,7 @@ export default class LetterboxLayer {
     return parseInt(rootTimestamp);
   }
 
-  getReplyTimestamp(postDoc: Document): number {
+  getReplyTimestamp(postDoc: Earthstar.Doc): number {
     const { replyTimestamp } = extractTemplateVariablesFromPath(
       threadReplyTemplate,
       postDoc.path,
@@ -93,7 +89,7 @@ export default class LetterboxLayer {
     return parseInt(replyTimestamp);
   }
 
-  getPostTimestamp(postDoc: Document): number {
+  getPostTimestamp(postDoc: Earthstar.Doc): number {
     if (isRootPost(postDoc)) {
       return this.getThreadRootTimestamp(postDoc);
     }
@@ -101,7 +97,7 @@ export default class LetterboxLayer {
     return this.getReplyTimestamp(postDoc);
   }
 
-  _docToThreadRoot(rootDoc: Document): Post {
+  _docToThreadRoot(rootDoc: Earthstar.Doc): Post {
     const { rootTimestamp } = extractTemplateVariablesFromPath(
       threadRootTemplate,
       rootDoc.path,
@@ -113,7 +109,7 @@ export default class LetterboxLayer {
     };
   }
 
-  _docToPost(postDoc: Document): Post {
+  _docToPost(postDoc: Earthstar.Doc): Post {
     const { replyTimestamp } = extractTemplateVariablesFromPath(
       threadReplyTemplate,
       postDoc.path,
@@ -125,54 +121,64 @@ export default class LetterboxLayer {
     };
   }
 
-  _createRootDoc(
+  async _createRootDoc(
     content: string,
     deleteAfter?: number,
-  ): string | ValidationError {
-    if (!this._user) {
-      return new ValidationError(
+  ): Promise<Earthstar.Doc | Earthstar.ValidationError> {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't create post document without a known user.",
       );
     }
 
     const timestamp = Date.now() * 1000;
     const path =
-      `/${APP_NAME}/rootthread:${timestamp}~${this._user.address}/root.md`;
+      `/${APP_NAME}/rootthread:${timestamp}~${this._identity.address}/root.md`;
 
-    const result = this._storage.set(this._user, {
+    const result = await this._replica.set(this._identity, {
       content,
       path,
       deleteAfter,
       format: "es.4",
     });
 
-    return isErr(result) ? result : path;
+    if (result.kind === "failure") {
+      console.error("Creating a root doc unexpectedly failed:", result.err);
+    }
+
+    return (result as Earthstar.IngestEventSuccess).doc;
   }
 
-  _createReplyDoc(
+  async _createReplyDoc(
     content: string,
     threadRootTimestamp: number,
     threadRootAuthor: string,
     deleteAfter?: number,
-  ): string | ValidationError {
-    if (!this._user) {
-      return new ValidationError(
+  ): Promise<
+    Earthstar.Doc | Earthstar.ValidationError
+  > {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't create post document without a known user.",
       );
     }
 
     const timestamp = Date.now() * 1000;
     const path =
-      `/${APP_NAME}/thread:${threadRootTimestamp}--${threadRootAuthor}/reply:${timestamp}~${this._user.address}.md`;
+      `/${APP_NAME}/thread:${threadRootTimestamp}--${threadRootAuthor}/reply:${timestamp}~${this._identity.address}.md`;
 
-    const result = this._storage.set(this._user, {
+    const result = await this._replica.set(this._identity, {
       content,
       path,
       deleteAfter,
       format: "es.4",
     });
 
-    return isErr(result) ? result : path;
+    if (result.kind === "failure") {
+      console.error("Creating a root doc unexpectedly failed:", result.err);
+    }
+
+    return (result as Earthstar.IngestEventSuccess).doc;
   }
 
   getThreadTitle(thread: Thread): string | undefined {
@@ -187,52 +193,55 @@ export default class LetterboxLayer {
     return firstLine.substring(2);
   }
 
-  getThreads(): Thread[] {
-    const threadRootDocs = this._storage.documents({
-      pathStartsWith: `/${APP_NAME}/rootthread:`,
+  async getThreads(): Promise<Thread[]> {
+    const threadRootDocs = await this._replica.queryDocs({
+      filter: { pathStartsWith: `/${APP_NAME}/rootthread:` },
     });
 
-    return threadRootDocs
-      .map((rootDoc) => {
-        const { rootTimestamp, opPubKey } = extractTemplateVariablesFromPath(
-          threadRootTemplate,
-          rootDoc.path,
-        ) as RootPathExtractedVars;
+    const threads = [];
 
-        return this.getThread(parseInt(rootTimestamp), opPubKey);
-      }).filter(
-        onlyDefined,
-      ).sort((aThread, bThread) => {
-        const aLast = this.lastThreadItem(aThread);
-        const bLast = this.lastThreadItem(bThread);
+    for (const rootDoc of threadRootDocs) {
+      const { rootTimestamp, opPubKey } = extractTemplateVariablesFromPath(
+        threadRootTemplate,
+        rootDoc.path,
+      ) as RootPathExtractedVars;
 
-        return aLast.firstPosted < bLast.firstPosted ? 1 : -1;
-      });
-  }
+      const thread = await this.getThread(parseInt(rootTimestamp), opPubKey);
 
-  createThread(
-    content: string,
-    deleteAfter?: number,
-  ): Thread | ValidationError {
-    const maybePath = this._createRootDoc(content, deleteAfter);
-
-    if (isErr(maybePath)) {
-      console.error(maybePath);
-
-      return maybePath;
+      threads.push(thread);
     }
 
-    if (!this._user) {
-      return new ValidationError(
+    return threads.filter(
+      onlyDefined,
+    ).sort((aThread, bThread) => {
+      const aLast = this.lastThreadItem(aThread);
+      const bLast = this.lastThreadItem(bThread);
+
+      return aLast.firstPosted < bLast.firstPosted ? 1 : -1;
+    });
+  }
+
+  async createThread(
+    content: string,
+    deleteAfter?: number,
+  ): Promise<Thread | Earthstar.ValidationError> {
+    const maybeDoc = await this._createRootDoc(content, deleteAfter);
+
+    if (Earthstar.isErr(maybeDoc)) {
+      console.error(maybeDoc);
+
+      return maybeDoc;
+    }
+
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't create post document without a known user.",
       );
     }
 
-    const doc = this._storage.getDocument(maybePath) as Document;
+    const threadRoot = this._docToThreadRoot(maybeDoc);
 
-    const threadRoot = this._docToThreadRoot(doc);
-
-    this.markReadUpTo(
+    await this.markReadUpTo(
       this.getThreadRootTimestamp(threadRoot.doc),
       threadRoot.doc.author,
       threadRoot.doc.timestamp,
@@ -244,8 +253,11 @@ export default class LetterboxLayer {
     };
   }
 
-  getThread(timestamp: number, authorPubKey: string): Thread | undefined {
-    const threadRootDoc = this._storage.getDocument(
+  async getThread(
+    timestamp: number,
+    authorPubKey: string,
+  ): Promise<Thread | undefined> {
+    const threadRootDoc = await this._replica.getLatestDocAtPath(
       `/${APP_NAME}/rootthread:${timestamp}~${authorPubKey}/root.md`,
     );
 
@@ -253,11 +265,20 @@ export default class LetterboxLayer {
       return undefined;
     }
 
-    const replyDocs = this._storage.documents({
-      pathStartsWith: `/${APP_NAME}/thread:${timestamp}--${authorPubKey}`,
+    const replyDocs = await this._replica.queryDocs({
+      filter: {
+        pathStartsWith: `/${APP_NAME}/thread:${timestamp}--${authorPubKey}`,
+      },
     });
 
-    const replies = replyDocs.map(this._docToPost, this).filter(onlyDefined);
+    const replies = replyDocs.map(this._docToPost, this).filter(onlyDefined)
+      .sort((aReply, bReply) => {
+        if (aReply.firstPosted < bReply.firstPosted) {
+          return -1;
+        }
+
+        return 1;
+      });
 
     return {
       root: this._docToThreadRoot(threadRootDoc),
@@ -265,59 +286,57 @@ export default class LetterboxLayer {
     };
   }
 
-  createReply(
+  async createReply(
     threadRootTimestamp: number,
     threadRootAuthorPubKey: string,
     content: string,
     deleteAfter?: number,
-  ): Post | ValidationError {
-    const maybePath = this._createReplyDoc(
+  ): Promise<Post | Earthstar.ValidationError> {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
+        "Can't create reply without a known user.",
+      );
+    }
+
+    const maybeDoc = await this._createReplyDoc(
       content,
       threadRootTimestamp,
       threadRootAuthorPubKey,
       deleteAfter,
     );
 
-    if (isErr(maybePath)) {
-      console.error(maybePath);
+    if (Earthstar.isErr(maybeDoc)) {
+      console.error(maybeDoc);
 
-      return maybePath;
+      return maybeDoc;
     }
 
-    if (!this._user) {
-      return new ValidationError(
-        "Couldn't create reply without a known user.",
-      );
-    }
-
-    const replyDoc = this._storage.getDocument(maybePath) as Document;
-
-    this.markReadUpTo(
+    await this.markReadUpTo(
       threadRootTimestamp,
       threadRootAuthorPubKey,
-      replyDoc.timestamp,
+      maybeDoc.timestamp,
     );
 
-    return this._docToPost(replyDoc);
+    return this._docToPost(maybeDoc);
   }
 
-  isUnread(post: Post): boolean {
-    if (!this._user) {
+  async isUnread(post: Post): Promise<boolean> {
+    if (!this._identity) {
       return false;
     }
 
     if (isRootPost(post.doc)) {
       const timestamp = this.getThreadRootTimestamp(post.doc);
 
-      const readUpToTimestamp = this._storage.getContent(
-        `/${APP_NAME}/readthread:${timestamp}--${post.doc.author}/~${this._user.address}/timestamp.txt`,
+      const readUpToDoc = await this._replica.getLatestDocAtPath(
+        `/${APP_NAME}/readthread:${timestamp}--${post.doc.author}/~${this._identity.address}/timestamp.txt`,
       );
 
-      if (!readUpToTimestamp) {
+      if (!readUpToDoc) {
         return false;
       }
 
-      return parseInt(readUpToTimestamp) < timestamp;
+      return timestamp > parseInt(readUpToDoc.content);
     }
 
     const { rootTimestamp, opPubKey, replyTimestamp } =
@@ -326,60 +345,71 @@ export default class LetterboxLayer {
         post.doc.path,
       ) as ReplyPathExtractedVars;
 
-    const readUpToTimestamp = this._storage.getContent(
-      `/${APP_NAME}/readthread:${rootTimestamp}--${opPubKey}/~${this._user.address}/timestamp.txt`,
+    const readUpToDoc = await this._replica.getLatestDocAtPath(
+      `/${APP_NAME}/readthread:${rootTimestamp}--${opPubKey}/~${this._identity.address}/timestamp.txt`,
     );
 
-    if (!readUpToTimestamp) {
+    if (!readUpToDoc) {
       return false;
     }
 
-    return parseInt(readUpToTimestamp) < parseInt(replyTimestamp);
+    return parseInt(replyTimestamp) > parseInt(readUpToDoc.content);
   }
 
-  threadHasUnreadPosts(thread: Thread): boolean {
-    if (!this._user) {
+  async threadHasUnreadPosts(thread: Thread): Promise<boolean> {
+    if (!this._identity) {
       return false;
     }
 
-    const readUpToTimestamp = this._storage.getContent(
+    const readUpToDoc = await this._replica.getLatestDocAtPath(
       `/${APP_NAME}/readthread:${
         this.getThreadRootTimestamp(thread.root.doc)
-      }--${thread.root.doc.author}/~${this._user.address}/timestamp.txt`,
+      }--${thread.root.doc.author}/~${this._identity.address}/timestamp.txt`,
     );
 
-    if (!readUpToTimestamp) {
+    if (!readUpToDoc) {
       return false;
     }
 
-    return [thread.root, ...thread.replies].some(
-      (post) => {
-        return this.isUnread(post);
-      },
-    );
+    let threadHasUnreadPosts = false;
+
+    for (const post of [thread.root, ...thread.replies]) {
+      const isUnread = await this.isUnread(post);
+
+      if (isUnread) {
+        threadHasUnreadPosts = true;
+      }
+    }
+
+    return threadHasUnreadPosts;
   }
 
-  markReadUpTo(
+  async markReadUpTo(
     threadRootTimestamp: number,
     threadRootAuthorPubKey: string,
     readUpToTimestamp: number,
   ) {
-    if (!this._user) {
-      return;
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
+        "Can't mark where a thread has been read up to without an identity.",
+      );
     }
 
-    const result = this._storage.set(this._user, {
+    const result = await this._replica.set(this._identity, {
       content: `${readUpToTimestamp}`,
       path:
-        `/${APP_NAME}/readthread:${threadRootTimestamp}--${threadRootAuthorPubKey}/~${this._user.address}/timestamp.txt`,
+        `/${APP_NAME}/readthread:${threadRootTimestamp}--${threadRootAuthorPubKey}/~${this._identity.address}/timestamp.txt`,
       format: "es.4",
     });
 
-    if (isErr(result)) {
-      console.warn(
-        `Something went wrong marking a thread as read`,
+    if (result.kind === "failure") {
+      console.error(
+        "Creating a mark read up to doc unexpectedly failed:",
+        result.err,
       );
     }
+
+    return (result as Earthstar.IngestEventSuccess).doc;
   }
 
   lastThreadItem(thread: Thread): Post {
@@ -390,51 +420,60 @@ export default class LetterboxLayer {
     return thread.replies[thread.replies.length - 1];
   }
 
-  editPost(post: Post, content: string): WriteResult | ValidationError {
-    if (!this._user) {
-      return new ValidationError(
+  async editPost(
+    post: Post,
+    content: string,
+  ): Promise<Earthstar.Doc | Earthstar.ValidationError> {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't edit post document without a known user.",
       );
     }
 
-    const result = this._storage.set(this._user, {
+    const result = await this._replica.set(this._identity, {
       path: post.doc.path,
       format: "es.4",
       content,
     });
 
-    return result;
+    if (result.kind === "failure") {
+      console.error("Editing a post unexpectedly failed:", result.err);
+    }
+
+    return (result as Earthstar.IngestEventSuccess).doc;
   }
 
-  getReplyDraft(
+  async getReplyDraft(
     threadRootTimestamp: number,
     threadRootAuthor: string,
-  ): string | undefined {
-    if (!this._user) {
+  ): Promise<string | undefined> {
+    if (!this._identity) {
       return undefined;
     }
 
-    return this._storage.getContent(
-      `/letterbox/drafts/thread:${threadRootTimestamp}--${threadRootAuthor}/~${this._user.address}.md`,
+    const maybeDoc = await this._replica.getLatestDocAtPath(
+      `/letterbox/drafts/thread:${threadRootTimestamp}--${threadRootAuthor}/~${this._identity.address}.md`,
     );
+
+    return maybeDoc?.content;
   }
 
-  setReplyDraft(
+  async setReplyDraft(
     threadRootTimestamp: number,
     threadRootAuthor: string,
     content: string,
-  ): WriteResult | ValidationError {
-    if (!this._user) {
-      return new ValidationError(
+  ): Promise<Earthstar.Doc | Earthstar.ValidationError> {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't set draft reply without a known user.",
       );
     }
 
     const draftPath =
-      `/${APP_NAME}/drafts/thread:${threadRootTimestamp}--${threadRootAuthor}/~${this._user.address}.md`;
+      `/${APP_NAME}/drafts/thread:${threadRootTimestamp}--${threadRootAuthor}/~${this._identity.address}.md`;
 
-    const result = this._storage.set(
-      this._user,
+    const result = await this._replica.set(
+      this._identity,
       {
         content,
         format: "es.4",
@@ -442,27 +481,33 @@ export default class LetterboxLayer {
       },
     );
 
-    return result;
+    if (result.kind === "failure") {
+      console.error("Setting a draft reply unexpectedly failed:", result.err);
+    }
+
+    return (result as Earthstar.IngestEventSuccess).doc;
   }
 
-  clearReplyDraft(threadRootTimestamp: number, threadRootAuthor: string) {
-    if (!this._user) {
-      return new ValidationError(
+  async clearReplyDraft(threadRootTimestamp: number, threadRootAuthor: string) {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't clear draft reply without a known user.",
       );
     }
 
-    return this.setReplyDraft(threadRootTimestamp, threadRootAuthor, "");
+    return await this.setReplyDraft(threadRootTimestamp, threadRootAuthor, "");
   }
 
-  getThreadRootDraftIds(): string[] {
-    if (!this._user) {
+  async getThreadRootDraftIds(): Promise<string[]> {
+    if (!this._identity) {
       return [];
     }
 
-    const drafts = this._storage.documents({
-      pathStartsWith: `/${APP_NAME}/drafts/~${this._user.address}/`,
-      contentLengthGt: 0,
+    const drafts = await this._replica.queryDocs({
+      filter: {
+        pathStartsWith: `/${APP_NAME}/drafts/~${this._identity.address}/`,
+        contentLengthGt: 0,
+      },
     });
 
     return drafts.map((doc) => {
@@ -475,22 +520,24 @@ export default class LetterboxLayer {
     });
   }
 
-  getThreadRootDraftContent(id: string): string | undefined {
-    if (!this._user) {
+  async getThreadRootDraftContent(id: string): Promise<string | undefined> {
+    if (!this._identity) {
       return undefined;
     }
 
-    return this._storage.getContent(
-      `/${APP_NAME}/drafts/~${this._user.address}/${id}.md`,
+    const maybeDraftDoc = await this._replica.getLatestDocAtPath(
+      `/${APP_NAME}/drafts/~${this._identity.address}/${id}.md`,
     );
+
+    return maybeDraftDoc?.content;
   }
 
-  setThreadRootDraft(
+  async setThreadRootDraft(
     content: string,
     id?: string,
-  ): ValidationError | string {
-    if (!this._user) {
-      return new ValidationError(
+  ): Promise<string | Earthstar.ValidationError> {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't clear draft reply without a known user.",
       );
     }
@@ -498,30 +545,30 @@ export default class LetterboxLayer {
     const timestamp = id || `${Date.now() * 1000}`;
 
     const draftPath =
-      `/${APP_NAME}/drafts/~${this._user.address}/${timestamp}.md`;
+      `/${APP_NAME}/drafts/~${this._identity.address}/${timestamp}.md`;
 
-    const existing = this._storage.getContent(draftPath);
+    const existingDraftDoc = await this._replica.getLatestDocAtPath(draftPath);
 
-    if (id === undefined && existing) {
+    if (id === undefined && existingDraftDoc) {
       return this.setThreadRootDraft(content, `${parseInt(timestamp) + 1}`);
     }
 
-    const res = this._storage.set(this._user, {
+    const res = await this._replica.set(this._identity, {
       content,
       format: "es.4",
       path: draftPath,
     });
-    
-    if (isErr(res)) {
-      return res
+
+    if (res.kind === "failure") {
+      console.error("Setting a draft reply unexpectedly failed:", res.err);
     }
-    
+
     return timestamp;
   }
 
-  clearThreadRootDraft(id: string) {
-    if (!this._user) {
-      return new ValidationError(
+  async clearThreadRootDraft(id: string) {
+    if (!this._identity) {
+      return new Earthstar.ValidationError(
         "Couldn't clear draft reply without a known user.",
       );
     }
@@ -529,19 +576,19 @@ export default class LetterboxLayer {
     const timestamp = id;
 
     const draftPath =
-      `/${APP_NAME}/drafts/~${this._user.address}/${timestamp}.md`;
+      `/${APP_NAME}/drafts/~${this._identity.address}/${timestamp}.md`;
 
-    return this._storage.set(this._user, {
+    return await this._replica.set(this._identity, {
       content: "",
       format: "es.4",
       path: draftPath,
     });
   }
 
-  getDraftThreadParts(
+  async getDraftThreadParts(
     id: string,
-  ): { title: string; content: string } | undefined {
-    const draftContent = this.getThreadRootDraftContent(id);
+  ): Promise<{ title: string; content: string } | undefined> {
+    const draftContent = await this.getThreadRootDraftContent(id);
 
     if (!draftContent) {
       return undefined;

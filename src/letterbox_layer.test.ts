@@ -1,82 +1,89 @@
-import {
-  AuthorKeypair,
-  generateAuthorKeypair,
-  isErr,
-  StorageMemory,
-  ValidatorEs4,
-  IStorage
-} from "https://esm.sh/earthstar";
+import * as Earthstar from "https://deno.land/x/earthstar@v7.0.0/mod.ts";
 import {
   assertEquals,
   assertNotEquals,
-  } from "https://deno.land/std@0.104.0/testing/asserts.ts";
+} from "https://deno.land/std@0.125.0/testing/asserts.ts";
 import LetterboxLayer from "./letterbox_layer.ts";
 
-function newStorage() {
-  return new StorageMemory([ValidatorEs4], "+test.a123");
+function newReplica() {
+  return new Earthstar.Replica(
+    "+test.a123",
+    Earthstar.FormatValidatorEs4,
+    new Earthstar.ReplicaDriverMemory("+test.a123"),
+  );
 }
 
-function newIdentity() {
-  return generateAuthorKeypair("test") as AuthorKeypair;
+async function newIdentity() {
+  const keypair = await Earthstar.Crypto.generateAuthorKeypair(
+    "test",
+  ) as Earthstar.AuthorKeypair;
+
+  return keypair;
 }
 
-function newLayer(storage: IStorage, keypair: AuthorKeypair) {
+function newLayer(
+  storage: Earthstar.Replica,
+  keypair: Earthstar.AuthorKeypair,
+) {
   return new LetterboxLayer(storage, keypair);
 }
 
 Deno.test({
   name: "Can write and read threads",
-  fn: () => {
-    const storage = newStorage();
-    const userA = newIdentity();
-    const userB = newIdentity();
-    const userC = newIdentity();
-    const layerA = newLayer(storage, userA);
-    const layerB = newLayer(storage, userB);
-    const layerC = newLayer(storage, userC);
+  fn: async () => {
+    const replica = newReplica();
+    const userA = await newIdentity();
+    const userB = await newIdentity();
+    const userC = await newIdentity();
+    const layerA = newLayer(replica, userA);
+    const layerB = newLayer(replica, userB);
+    const layerC = newLayer(replica, userC);
 
-    layerA.createThread("Hello! First thread");
-    layerB.createThread("Yo. Second thread");
-    layerC.createThread("Greetz. Third thread");
+    await layerA.createThread("Hello! First thread");
+    await layerB.createThread("Yo. Second thread");
+    await layerC.createThread("Greetz. Third thread");
 
-    const threads = layerA.getThreads();
+    const threads = await layerA.getThreads();
 
     assertEquals(threads.length, 3);
     assertEquals(threads[0].root.doc.content, "Greetz. Third thread");
     assertEquals(threads[2].root.doc.content, "Hello! First thread");
 
-    storage.close();
+    await replica.close(true);
   },
-  sanitizeOps: false,
 });
 
 Deno.test({
   name: "Can write and read replies",
-  fn: () => {
-    const storage = newStorage()
-    const userA = newIdentity()
-    const userB = newIdentity()
-    const userC = newIdentity()
-    const userD = newIdentity()
+  fn: async () => {
+    const storage = newReplica();
+    const userA = await newIdentity();
+    const userB = await newIdentity();
+    const userC = await newIdentity();
+    const userD = await newIdentity();
     const layerA = newLayer(storage, userA);
     const layerB = newLayer(storage, userB);
     const layerC = newLayer(storage, userC);
     const layerD = newLayer(storage, userD);
 
-    const thread = layerA.createThread("Hello! This is my thread.");
+    const thread = await layerA.createThread("Hello! This is my thread.");
 
-    if (isErr(thread)) {
-      assertEquals(isErr(thread), false);
+    if (Earthstar.isErr(thread)) {
+      assertEquals(Earthstar.isErr(thread), false);
       return;
     }
 
     const timestamp = layerA.getThreadRootTimestamp(thread.root.doc);
 
-    layerB.createReply(timestamp, thread.root.doc.author, "Great thread.");
-    layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
-    layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
+    await layerB.createReply(
+      timestamp,
+      thread.root.doc.author,
+      "Great thread.",
+    );
+    await layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
+    await layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
 
-    const threadWithReplies = layerA.getThread(
+    const threadWithReplies = await layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -90,41 +97,41 @@ Deno.test({
     assertEquals(threadWithReplies.replies[0].doc.content, "Great thread.");
     assertEquals(threadWithReplies.replies[2].doc.content, "Totally.");
 
-    layerA._storage.close();
-    layerB._storage.close();
-    layerC._storage.close();
-    layerD._storage.close();
+    await storage.close(true);
   },
-  sanitizeOps: false,
 });
 
 Deno.test({
   name: "Can mark thread as read",
-  fn: () => {
-    const storage = newStorage();
-    const userA = newIdentity()
-    const userB = newIdentity()
-    const userC = newIdentity()
-    const userD = newIdentity()
+  fn: async () => {
+    const storage = newReplica();
+    const userA = await newIdentity();
+    const userB = await newIdentity();
+    const userC = await newIdentity();
+    const userD = await newIdentity();
     const layerA = newLayer(storage, userA);
     const layerB = newLayer(storage, userB);
     const layerC = newLayer(storage, userC);
     const layerD = newLayer(storage, userD);
 
-    const thread = layerA.createThread("Hello! This is my thread.");
+    const thread = await layerA.createThread("Hello! This is my thread.");
 
-    if (isErr(thread)) {
-      assertEquals(isErr(thread), false);
+    if (Earthstar.isErr(thread)) {
+      assertEquals(Earthstar.isErr(thread), false);
       return;
     }
 
     const timestamp = layerA.getThreadRootTimestamp(thread.root.doc);
 
-    layerB.createReply(timestamp, thread.root.doc.author, "Great thread.");
-    layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
-    layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
+    await layerB.createReply(
+      timestamp,
+      thread.root.doc.author,
+      "Great thread.",
+    );
+    await layerC.createReply(timestamp, thread.root.doc.author, "I agree!");
+    await layerD.createReply(timestamp, thread.root.doc.author, "Totally.");
 
-    const threadWithReplies = layerA.getThread(
+    const threadWithReplies = await layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -139,7 +146,7 @@ Deno.test({
     }
 
     assertEquals(
-      layerA.threadHasUnreadPosts(threadWithReplies),
+      await layerA.threadHasUnreadPosts(threadWithReplies),
       true,
       "Thread with replies has unread posts",
     );
@@ -148,9 +155,13 @@ Deno.test({
       threadWithReplies.replies[1].doc,
     );
 
-    layerA.markReadUpTo(timestamp, thread.root.doc.author, secondReplyTimestamp);
+    await layerA.markReadUpTo(
+      timestamp,
+      thread.root.doc.author,
+      secondReplyTimestamp,
+    );
 
-    const threadWithUnreadReplies = layerA.getThread(
+    const threadWithUnreadReplies = await layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -165,24 +176,33 @@ Deno.test({
     }
 
     assertEquals(
-      layerA.threadHasUnreadPosts(threadWithUnreadReplies),
+      await layerA.threadHasUnreadPosts(threadWithUnreadReplies),
       true,
       "Thread with some unread replies has unread posts",
     );
 
-    const shouldBeRead = layerA.isUnread(threadWithUnreadReplies.replies[1]);
-    const shouldBeUnread = layerA.isUnread(threadWithUnreadReplies.replies[2]);
+    const shouldBeFalse = await layerA.isUnread(
+      threadWithUnreadReplies.replies[1],
+    );
 
-    assertEquals(shouldBeRead, false, "Second reply should be read");
-    assertEquals(shouldBeUnread, true, "Third reply should be unread");
-    
+    const shouldBeTrue = await layerA.isUnread(
+      threadWithUnreadReplies.replies[2],
+    );
+
+    assertEquals(shouldBeFalse, false, "Second reply should be read");
+    assertEquals(shouldBeTrue, true, "Third reply should be unread");
+
     const lastReplyTimestamp = layerA.getPostTimestamp(
       threadWithReplies.replies[2].doc,
     );
-    
-    layerA.markReadUpTo(timestamp, thread.root.doc.author, lastReplyTimestamp);
-    
-    const threadWithReadReplies = layerA.getThread(
+
+    await layerA.markReadUpTo(
+      timestamp,
+      thread.root.doc.author,
+      lastReplyTimestamp,
+    );
+
+    const threadWithReadReplies = await layerA.getThread(
       timestamp,
       thread.root.doc.author,
     );
@@ -197,98 +217,96 @@ Deno.test({
     }
 
     assertEquals(
-      layerA.threadHasUnreadPosts(threadWithUnreadReplies),
+      await layerA.threadHasUnreadPosts(threadWithUnreadReplies),
       false,
       "Thread with all replies marked as read has no unread posts",
     );
 
-    storage.close();
+    await storage.close(true);
   },
-  sanitizeOps: false,
 });
 
 Deno.test({
   name: "Can create, retrieve, and clear reply drafts",
-  fn: () => {
-    const storage = newStorage();
-    const user = newIdentity();
+  fn: async () => {
+    const storage = newReplica();
+    const user = await newIdentity();
     const layer = newLayer(storage, user);
 
-    const thread = layer.createThread("My very long thread.");
+    const thread = await layer.createThread("My very long thread.");
 
-    if (isErr(thread)) {
+    if (Earthstar.isErr(thread)) {
       return;
     }
 
     const rootTimestamp = layer.getThreadRootTimestamp(thread.root.doc);
 
     assertEquals(
-      layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
+      await layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
       undefined,
     );
 
-    const writeReplyRes = layer.setReplyDraft(
+    const writeReplyRes = await layer.setReplyDraft(
       rootTimestamp,
       thread.root.doc.author,
       "What should I say?",
     );
 
     assertEquals(
-      isErr(writeReplyRes),
+      Earthstar.isErr(writeReplyRes),
       false,
       "Reply draft write was successful",
     );
     assertEquals(
-      layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
+      await layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
       "What should I say?",
       "Draft is what was just set",
     );
 
-    const clearRes = layer.clearReplyDraft(
+    const clearRes = await layer.clearReplyDraft(
       rootTimestamp,
       thread.root.doc.author,
     );
 
     assertEquals(
-      isErr(clearRes),
+      Earthstar.isErr(clearRes),
       false,
       "Reply draft clear was successful",
     );
     assertEquals(
-      layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
+      await layer.getReplyDraft(rootTimestamp, thread.root.doc.author),
       "",
       "Draft was cleared",
     );
 
-    layer._storage.close();
+    storage.close(true);
   },
-  sanitizeOps: false,
 });
 
 Deno.test({
   name: "Can create, retrieve, and clear thread drafts",
-  fn: () => {
-    const storage = newStorage();
-    const user = newIdentity();
+  fn: async () => {
+    const storage = newReplica();
+    const user = await newIdentity();
     const layer = newLayer(storage, user);
 
-    layer.setThreadRootDraft("Unorganised thoughts");
-    setTimeout(() => {}, 10);
-    layer.setThreadRootDraft("Potential ideas");
-    setTimeout(() => {}, 10);
-    layer.setThreadRootDraft("How do I put this?");
+    await layer.setThreadRootDraft("Unorganised thoughts");
+    await layer.setThreadRootDraft("Potential ideas");
+    await layer.setThreadRootDraft("How do I put this?");
 
-    const draftIds = layer.getThreadRootDraftIds();
+    const draftIds = await layer.getThreadRootDraftIds();
 
     assertEquals(draftIds.length, 3, "Has three drafts");
 
-    const secondDraftContent = layer.getThreadRootDraftContent(draftIds[1]);
+    const secondDraftContent = await layer.getThreadRootDraftContent(
+      draftIds[1],
+    );
 
     assertNotEquals(secondDraftContent, undefined);
 
-    layer.setThreadRootDraft("Updated draft!", draftIds[1]);
+    await layer.setThreadRootDraft("Updated draft!", draftIds[1]);
 
-    const secondDraftUpdatedContent = layer.getThreadRootDraftContent(
+    const secondDraftUpdatedContent = await layer.getThreadRootDraftContent(
       draftIds[1],
     );
 
@@ -298,13 +316,12 @@ Deno.test({
       "Draft was updated",
     );
 
-    layer.clearThreadRootDraft(draftIds[1]);
+    await layer.clearThreadRootDraft(draftIds[1]);
 
-    const nextDraftIds = layer.getThreadRootDraftIds();
+    const nextDraftIds = await layer.getThreadRootDraftIds();
 
     assertEquals(nextDraftIds.length, 2);
 
-    layer._storage.close();
+    storage.close(true);
   },
-  sanitizeOps: false,
 });
