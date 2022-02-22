@@ -1,57 +1,50 @@
-import * as esbuild from "https://deno.land/x/esbuild@v0.12.13/mod.js";
+import { build } from "https://deno.land/x/dnt@0.16.1/mod.ts";
 
-const reverseImportMap: Record<string, string> = {
-  "https://esm.sh/earthstar": "earthstar",
-};
+await Deno.remove("npm", { recursive: true }).catch((_) => {});
 
-const reverseImportMapPlugin: esbuild.Plugin = {
-  name: "reverseImportMap",
-  setup(build) {
-    build.onResolve({ filter: /.*?/ }, (args) => {
-      if (reverseImportMap[args.path]) {
-        return {
-          path: reverseImportMap[args.path],
-          namespace: args.path,
-          external: true,
-        };
-      }
-
-      return {};
-    });
+await build({
+  entryPoints: [
+    "./mod.ts",
+  ],
+  outDir: "./npm",
+  shims: {
+    deno: {
+      test: "dev",
+    },
+    timers: true,
   },
-};
+  mappings: {
+    "https://deno.land/x/earthstar@v7.1.0/mod.ts": {
+      name: "earthstar",
+      version: "7.1.0",
+    },
+  },
+  package: {
+    // package.json properties
+    name: "@earthstar-project/rich-threads-layer",
+    private: false,
+    version: Deno.args[0],
+    description: "Long-form rich formatted threads for Earthstar",
+    license: "LGPL-3.0-only",
+    homepage: "https://earthstar-project.org",
+    "funding": {
+      "type": "opencollective",
+      "url": "https://opencollective.com/earthstar",
+    },
+    repository: {
+      type: "git",
+      url: "git+https://github.com/earthstar-project/rich-threads-layer.git",
+    },
+    bugs: {
+      url: "https://github.com/earthstar-project/rich-threads-layer/issues",
+    },
+    devDependencies: {
+      "@types/express": "4.17.2",
+      "@types/node-fetch": "2.5.12",
+    },
+  },
+});
 
-const baseConfig = {
-  entryPoints: ["./npm/index.ts"],
-  bundle: true,
-  external: ["earthstar", "earthstar-graph-db"],
-  target: ["es2017"],
-  plugins: [reverseImportMapPlugin],
-};
-
-const configs: esbuild.BuildOptions[] = [{
-  ...baseConfig,
-  outfile: "./npm/index.cjs",
-  format: "cjs",
-  platform: "node",
-  conditions: ["node"],
-}, {
-  ...baseConfig,
-  outfile: "./npm/index.mjs",
-  format: "esm",
-  platform: "node",
-  conditions: ["node"],
-}, {
-  ...baseConfig,
-  outfile: "./npm/index.js",
-  format: "esm",
-  conditions: ["browser"],
-}];
-
-await Promise.all(configs.map((config) => esbuild.build(config))).then(() => {
-  Deno.exit();
-})
-  .catch((error) => {
-    console.error(error);
-    Deno.exit(1);
-  });
+// post build steps
+Deno.copyFileSync("LICENSE", "npm/LICENSE");
+Deno.copyFileSync("README.md", "npm/README.md");

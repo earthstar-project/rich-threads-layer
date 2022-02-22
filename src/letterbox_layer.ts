@@ -1,5 +1,4 @@
-import * as Earthstar from "https://deno.land/x/earthstar@v7.0.0/mod.ts";
-import { extractTemplateVariablesFromPath } from "https://deno.land/x/earthstar@v7.0.0/src/query/query-helpers.ts";
+import * as Earthstar from "https://deno.land/x/earthstar@v7.1.0/mod.ts";
 
 export type Post = {
   doc: Earthstar.Doc;
@@ -72,7 +71,7 @@ export default class LetterboxLayer {
   }
 
   getThreadRootTimestamp(rootDoc: Earthstar.Doc): number {
-    const { rootTimestamp } = extractTemplateVariablesFromPath(
+    const { rootTimestamp } = Earthstar.extractTemplateVariablesFromPath(
       threadRootTemplate,
       rootDoc.path,
     ) as RootPathExtractedVars;
@@ -81,7 +80,7 @@ export default class LetterboxLayer {
   }
 
   getReplyTimestamp(postDoc: Earthstar.Doc): number {
-    const { replyTimestamp } = extractTemplateVariablesFromPath(
+    const { replyTimestamp } = Earthstar.extractTemplateVariablesFromPath(
       threadReplyTemplate,
       postDoc.path,
     ) as ReplyPathExtractedVars;
@@ -98,7 +97,7 @@ export default class LetterboxLayer {
   }
 
   _docToThreadRoot(rootDoc: Earthstar.Doc): Post {
-    const { rootTimestamp } = extractTemplateVariablesFromPath(
+    const { rootTimestamp } = Earthstar.extractTemplateVariablesFromPath(
       threadRootTemplate,
       rootDoc.path,
     ) as RootPathExtractedVars;
@@ -110,7 +109,7 @@ export default class LetterboxLayer {
   }
 
   _docToPost(postDoc: Earthstar.Doc): Post {
-    const { replyTimestamp } = extractTemplateVariablesFromPath(
+    const { replyTimestamp } = Earthstar.extractTemplateVariablesFromPath(
       threadReplyTemplate,
       postDoc.path,
     ) as ReplyPathExtractedVars;
@@ -201,10 +200,11 @@ export default class LetterboxLayer {
     const threads = [];
 
     for (const rootDoc of threadRootDocs) {
-      const { rootTimestamp, opPubKey } = extractTemplateVariablesFromPath(
-        threadRootTemplate,
-        rootDoc.path,
-      ) as RootPathExtractedVars;
+      const { rootTimestamp, opPubKey } = Earthstar
+        .extractTemplateVariablesFromPath(
+          threadRootTemplate,
+          rootDoc.path,
+        ) as RootPathExtractedVars;
 
       const thread = await this.getThread(parseInt(rootTimestamp), opPubKey);
 
@@ -339,8 +339,8 @@ export default class LetterboxLayer {
       return timestamp > parseInt(readUpToDoc.content);
     }
 
-    const { rootTimestamp, opPubKey, replyTimestamp } =
-      extractTemplateVariablesFromPath(
+    const { rootTimestamp, opPubKey, replyTimestamp } = Earthstar
+      .extractTemplateVariablesFromPath(
         threadReplyTemplate,
         post.doc.path,
       ) as ReplyPathExtractedVars;
@@ -511,7 +511,7 @@ export default class LetterboxLayer {
     });
 
     return drafts.map((doc) => {
-      const { timestamp } = extractTemplateVariablesFromPath(
+      const { timestamp } = Earthstar.extractTemplateVariablesFromPath(
         threadDraftTemplate,
         doc.path,
       ) as ThreadDraftPathExtractedVars;

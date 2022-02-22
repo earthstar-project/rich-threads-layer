@@ -1,4 +1,4 @@
-import * as Earthstar from "https://deno.land/x/earthstar@v7.0.0/mod.ts";
+import * as Earthstar from "https://deno.land/x/earthstar@v7.1.0/mod.ts";
 import {
   assertEquals,
   assertNotEquals,
