@@ -3,7 +3,7 @@ import {
   assertEquals,
   assertNotEquals,
 } from "https://deno.land/std@0.125.0/testing/asserts.ts";
-import LetterboxLayer from "./letterbox_layer.ts";
+import {LetterboxLayer} from "./letterbox_layer.ts";
 
 function newReplica() {
   return new Earthstar.Replica(
