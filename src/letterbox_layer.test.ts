@@ -1,9 +1,9 @@
-import * as Earthstar from "https://deno.land/x/earthstar@v7.1.0/mod.ts";
+import { Earthstar } from "../deps.ts";
 import {
   assertEquals,
   assertNotEquals,
 } from "https://deno.land/std@0.125.0/testing/asserts.ts";
-import {LetterboxLayer} from "./letterbox_layer.ts";
+import { LetterboxLayer } from "./letterbox_layer.ts";
 
 function newReplica() {
   return new Earthstar.Replica(

@@ -1,4 +1,4 @@
-import { build } from "https://deno.land/x/dnt@0.16.1/mod.ts";
+import { build } from "https://deno.land/x/dnt@0.21.0/mod.ts";
 
 await Deno.remove("npm", { recursive: true }).catch((_) => {});
 
@@ -14,9 +14,9 @@ await build({
     timers: true,
   },
   mappings: {
-    "https://deno.land/x/earthstar@v7.1.0/mod.ts": {
+    "https://deno.land/x/earthstar@v8.2.4/mod.browser.ts": {
       name: "earthstar",
-      version: "7.1.0",
+      version: "8.2.4",
     },
   },
   package: {
@@ -41,7 +41,9 @@ await build({
     devDependencies: {
       "@types/express": "4.17.2",
       "@types/node-fetch": "2.5.12",
+      "@types/better-sqlite3": "7.4.3",
     },
+    sideEffects: false,
   },
 });
 

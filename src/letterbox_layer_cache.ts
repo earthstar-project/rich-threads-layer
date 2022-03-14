@@ -14,12 +14,12 @@ import {
 } from "./constants.ts";
 import { isRootPost, onlyDefined } from "./util.ts";
 
-export class LetterboxLayer {
-  _replica: Earthstar.Replica;
+export class LetterboxLayerCache {
+  _replica: Earthstar.ReplicaCache;
   _identity: Earthstar.AuthorKeypair | null;
 
   constructor(
-    replica: Earthstar.Replica,
+    replica: Earthstar.ReplicaCache,
     user: Earthstar.AuthorKeypair | null,
   ) {
     this._identity = user;
@@ -148,8 +148,8 @@ export class LetterboxLayer {
     return firstLine.substring(2);
   }
 
-  async getThreadRoots(): Promise<Post[]> {
-    const threadRootDocs = await this._replica.queryDocs({
+  getThreadRoots(): Post[] {
+    const threadRootDocs = this._replica.queryDocs({
       filter: { pathStartsWith: `/${APP_NAME}/rootthread:` },
       orderBy: "path DESC",
     });
@@ -157,8 +157,8 @@ export class LetterboxLayer {
     return threadRootDocs.map(this._docToThreadRoot);
   }
 
-  async getThreads(): Promise<Thread[]> {
-    const threadRootDocs = await this._replica.queryDocs({
+  getThreads(): Thread[] {
+    const threadRootDocs = this._replica.queryDocs({
       filter: { pathStartsWith: `/${APP_NAME}/rootthread:` },
     });
 
@@ -171,7 +171,7 @@ export class LetterboxLayer {
           rootDoc.path,
         ) as RootPathExtractedVars;
 
-      const thread = await this.getThread(parseInt(rootTimestamp), opPubKey);
+      const thread = this.getThread(parseInt(rootTimestamp), opPubKey);
 
       threads.push(thread);
     }
@@ -218,11 +218,11 @@ export class LetterboxLayer {
     };
   }
 
-  async getThread(
+  getThread(
     timestamp: number,
     authorPubKey: string,
-  ): Promise<Thread | undefined> {
-    const threadRootDoc = await this._replica.getLatestDocAtPath(
+  ): Thread | undefined {
+    const threadRootDoc = this._replica.getLatestDocAtPath(
       `/${APP_NAME}/rootthread:${timestamp}~${authorPubKey}/root.md`,
     );
 
@@ -230,9 +230,10 @@ export class LetterboxLayer {
       return undefined;
     }
 
-    const replyDocs = await this._replica.queryDocs({
+    const replyDocs = this._replica.queryDocs({
       filter: {
-        pathStartsWith: `/${APP_NAME}/thread:${timestamp}--${authorPubKey}`,
+        pathStartsWith:
+          `/${APP_NAME}/thread:${timestamp}--${authorPubKey}/reply`,
       },
     });
 
@@ -285,7 +286,7 @@ export class LetterboxLayer {
     return this._docToPost(maybeDoc);
   }
 
-  async isUnread(post: Post): Promise<boolean> {
+  isUnread(post: Post): boolean {
     if (!this._identity) {
       return false;
     }
@@ -293,7 +294,7 @@ export class LetterboxLayer {
     if (isRootPost(post.doc)) {
       const timestamp = this.getThreadRootTimestamp(post.doc);
 
-      const readUpToDoc = await this._replica.getLatestDocAtPath(
+      const readUpToDoc = this._replica.getLatestDocAtPath(
         `/${APP_NAME}/readthread:${timestamp}--${post.doc.author}/~${this._identity.address}/timestamp.txt`,
       );
 
@@ -310,7 +311,7 @@ export class LetterboxLayer {
         post.doc.path,
       ) as ReplyPathExtractedVars;
 
-    const readUpToDoc = await this._replica.getLatestDocAtPath(
+    const readUpToDoc = this._replica.getLatestDocAtPath(
       `/${APP_NAME}/readthread:${rootTimestamp}--${opPubKey}/~${this._identity.address}/timestamp.txt`,
     );
 
@@ -321,12 +322,12 @@ export class LetterboxLayer {
     return parseInt(replyTimestamp) > parseInt(readUpToDoc.content);
   }
 
-  async threadHasUnreadPosts(thread: Thread): Promise<boolean> {
+  threadHasUnreadPosts(thread: Thread): boolean {
     if (!this._identity) {
       return false;
     }
 
-    const readUpToDoc = await this._replica.getLatestDocAtPath(
+    const readUpToDoc = this._replica.getLatestDocAtPath(
       `/${APP_NAME}/readthread:${
         this.getThreadRootTimestamp(thread.root.doc)
       }--${thread.root.doc.author}/~${this._identity.address}/timestamp.txt`,
@@ -339,7 +340,7 @@ export class LetterboxLayer {
     let threadHasUnreadPosts = false;
 
     for (const post of [thread.root, ...thread.replies]) {
-      const isUnread = await this.isUnread(post);
+      const isUnread = this.isUnread(post);
 
       if (isUnread) {
         threadHasUnreadPosts = true;
@@ -408,15 +409,15 @@ export class LetterboxLayer {
     return (result as Earthstar.IngestEventSuccess).doc;
   }
 
-  async getReplyDraft(
+  getReplyDraft(
     threadRootTimestamp: number,
     threadRootAuthor: string,
-  ): Promise<string | undefined> {
+  ): string | undefined {
     if (!this._identity) {
       return undefined;
     }
 
-    const maybeDoc = await this._replica.getLatestDocAtPath(
+    const maybeDoc = this._replica.getLatestDocAtPath(
       `/letterbox/drafts/thread:${threadRootTimestamp}--${threadRootAuthor}/~${this._identity.address}.md`,
     );
 
@@ -463,12 +464,12 @@ export class LetterboxLayer {
     return await this.setReplyDraft(threadRootTimestamp, threadRootAuthor, "");
   }
 
-  async getThreadRootDraftIds(): Promise<string[]> {
+  getThreadRootDraftIds(): string[] {
     if (!this._identity) {
       return [];
     }
 
-    const drafts = await this._replica.queryDocs({
+    const drafts = this._replica.queryDocs({
       filter: {
         pathStartsWith: `/${APP_NAME}/drafts/~${this._identity.address}/`,
         contentLengthGt: 0,
@@ -493,12 +494,12 @@ export class LetterboxLayer {
     return draftIds;
   }
 
-  async getThreadRootDraftContent(id: string): Promise<string | undefined> {
+  getThreadRootDraftContent(id: string): string | undefined {
     if (!this._identity) {
       return undefined;
     }
 
-    const maybeDraftDoc = await this._replica.getLatestDocAtPath(
+    const maybeDraftDoc = this._replica.getLatestDocAtPath(
       `/${APP_NAME}/drafts/~${this._identity.address}/${id}.md`,
     );
 
@@ -520,7 +521,7 @@ export class LetterboxLayer {
     const draftPath =
       `/${APP_NAME}/drafts/~${this._identity.address}/${timestamp}.md`;
 
-    const existingDraftDoc = await this._replica.getLatestDocAtPath(draftPath);
+    const existingDraftDoc = this._replica.getLatestDocAtPath(draftPath);
 
     if (id === undefined && existingDraftDoc) {
       return this.setThreadRootDraft(content, `${parseInt(timestamp) + 1}`);
@@ -558,10 +559,10 @@ export class LetterboxLayer {
     });
   }
 
-  async getDraftThreadParts(
+  getDraftThreadParts(
     id: string,
-  ): Promise<{ title: string; content: string } | undefined> {
-    const draftContent = await this.getThreadRootDraftContent(id);
+  ): { title: string; content: string } | undefined {
+    const draftContent = this.getThreadRootDraftContent(id);
 
     if (!draftContent) {
       return undefined;
